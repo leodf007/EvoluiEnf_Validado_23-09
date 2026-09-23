@@ -1,0 +1,250 @@
+import {
+  ClinicalModuleCapabilities,
+  ClinicalModuleDefinition,
+  ClinicalModuleContract,
+  ClinicalArea,
+} from './types';
+import {
+  TechnicianPediatricNursingNoteForm,
+  createInitialTechnicianPediatricNursingNoteForm,
+} from '../../types/technicianPediatricNursingNote';
+import {
+  normalizeTechnicianPediatricForm,
+  buildPediatricAuthorizedFacts,
+  buildTechnicianPediatricNursingNote,
+  validateTechnicianPediatricConsistency,
+  auditPediatricNarrative,
+  verifyPediatricAIRefinedResponse,
+} from '../pediatricClinicalFactBuilder';
+
+export const TECH_PEDIATRICS_CAPABILITIES: ClinicalModuleCapabilities = {
+  supportsVitalSigns: true,
+  supportsPain: true,
+  supportsNeurologicalAssessment: true,
+  supportsRespiratoryAssessment: true,
+  supportsMechanicalVentilation: true,
+  supportsCardiovascularAssessment: true,
+  supportsNutrition: true,
+  supportsEliminations: true,
+  supportsDevices: true,
+  supportsSkinAssessment: true,
+  supportsInfusions: false,
+  supportsRiskAssessment: false,
+  supportsResponseToCare: true,
+  supportsNurseClinicalSynthesis: false, // Strict COFEN prohibition for technician
+};
+
+export const TECHNICIAN_NURSING_NOTE_PEDIATRICS: ClinicalModuleDefinition = {
+  id: 'TECHNICIAN_NURSING_NOTE_PEDIATRICS',
+  moduleId: 'technician_nursing_note',
+  professionalRole: 'technician',
+  documentType: 'TECHNICIAN_NURSING_NOTE',
+  clinicalArea: ClinicalArea.PEDIATRICS,
+  title: 'Anotação de Enfermagem — Pediatria',
+  capabilities: TECH_PEDIATRICS_CAPABILITIES,
+  status: 'available',
+  sections: [
+    {
+      id: 'sec-ped-context',
+      title: 'Contexto do Registro',
+      description: 'Momento, localização e fonte da informação',
+      componentId: 'PediatricContextInputs',
+      order: 1,
+      optional: false,
+    },
+    {
+      id: 'sec-ped-accompaniment',
+      title: 'Identificação e Acompanhante',
+      description: 'Presença e relação de acompanhante sem identificação nominal',
+      componentId: 'PediatricAccompanimentInputs',
+      order: 2,
+      optional: false,
+    },
+    {
+      id: 'sec-ped-characteristics',
+      title: 'Características Gerais',
+      description: 'Faixa etária opcional, idade informada, peso e altura',
+      componentId: 'PediatricCharacteristicsInputs',
+      order: 3,
+      optional: true,
+    },
+    {
+      id: 'sec-ped-vitals',
+      title: 'Sinais Vitais',
+      description: 'PA, PAM manual aferida, FC, FR, SpO2, Temperatura, Glicemia',
+      componentId: 'VitalSignsInputs',
+      order: 4,
+      optional: true,
+      capabilityRequirement: 'supportsVitalSigns',
+    },
+    {
+      id: 'sec-ped-pain',
+      title: 'Dor Pediátrica',
+      description: 'Avaliação da dor por Escala Numérica, FLACC ou Faces',
+      componentId: 'PainAssessmentInputs',
+      order: 5,
+      optional: true,
+      capabilityRequirement: 'supportsPain',
+    },
+    {
+      id: 'sec-ped-neuro',
+      title: 'Neurológico e Comportamento',
+      description: 'Comunicação, comportamento observado e queixas informadas',
+      componentId: 'PediatricNeuroBehaviorInputs',
+      order: 6,
+      optional: false,
+      capabilityRequirement: 'supportsNeurologicalAssessment',
+    },
+    {
+      id: 'sec-ped-resp',
+      title: 'Respiratório',
+      description: 'Suporte ventilatório, parâmetros informados e oxigenoterapia',
+      componentId: 'RespiratorySupportInputs',
+      order: 7,
+      optional: true,
+      capabilityRequirement: 'supportsRespiratoryAssessment',
+    },
+    {
+      id: 'sec-ped-cardio',
+      title: 'Cardiovascular e Perfusão',
+      description: 'Perfusão periférica, extremidades e edema observado',
+      componentId: 'PediatricCardiovascularInputs',
+      order: 8,
+      optional: true,
+      capabilityRequirement: 'supportsCardiovascularAssessment',
+    },
+    {
+      id: 'sec-ped-nutrition',
+      title: 'Nutrição e Alimentação',
+      description: 'Via de alimentação, aceitação, dieta enteral e aleitamento',
+      componentId: 'PediatricNutritionInputs',
+      order: 9,
+      optional: true,
+      capabilityRequirement: 'supportsNutrition',
+    },
+    {
+      id: 'sec-ped-eliminations',
+      title: 'Eliminações',
+      description: 'Diurese e evacuações fisiológicas observadas',
+      componentId: 'EliminationInputs',
+      order: 10,
+      optional: true,
+      capabilityRequirement: 'supportsEliminations',
+    },
+    {
+      id: 'sec-ped-devices',
+      title: 'Dispositivos',
+      description: 'Dispositivos invasivos (AVP, CVC, PICC, SVD, drenos)',
+      componentId: 'DeviceFormCard',
+      order: 11,
+      optional: true,
+      capabilityRequirement: 'supportsDevices',
+    },
+    {
+      id: 'sec-ped-skin',
+      title: 'Pele e Integridade Cutânea',
+      description: 'Integridade da pele, hidratação, lesões e curativos',
+      componentId: 'SkinAssessmentInputs',
+      order: 12,
+      optional: true,
+      capabilityRequirement: 'supportsSkinAssessment',
+    },
+    {
+      id: 'sec-ped-mobility',
+      title: 'Mobilidade e Segurança',
+      description: 'Padrão de mobilidade, grades elevadas, cabeceira e segurança',
+      componentId: 'PediatricMobilitySafetyInputs',
+      order: 13,
+      optional: true,
+    },
+    {
+      id: 'sec-ped-hygiene',
+      title: 'Higiene e Banho',
+      description: 'Cuidados de higiene e tipo de banho com tolerância',
+      componentId: 'PediatricHygieneBathInputs',
+      order: 14,
+      optional: true,
+    },
+    {
+      id: 'sec-ped-care',
+      title: 'Cuidados Realizados',
+      description: 'Ações de enfermagem executadas no atendimento pediátrico',
+      componentId: 'NursingCareInputs',
+      order: 15,
+      optional: true,
+      capabilityRequirement: 'supportsResponseToCare',
+    },
+    {
+      id: 'sec-ped-medications',
+      title: 'Medicações e Cuidados Relacionados',
+      description: 'Medicações efetivamente administradas conforme prescrição',
+      componentId: 'MedicationAdminInputs',
+      order: 16,
+      optional: true,
+    },
+    {
+      id: 'sec-ped-complications',
+      title: 'Intercorrências',
+      description: 'Registro de intercorrências, cuidado realizado e comunicação',
+      componentId: 'ComplicationInputs',
+      order: 17,
+      optional: true,
+    },
+    {
+      id: 'sec-ped-communication',
+      title: 'Comunicação com Responsável e Equipe',
+      description: 'Orientações transmitidas e comunicação à equipe sem identificadores',
+      componentId: 'CommunicationInputs',
+      order: 18,
+      optional: true,
+    },
+    {
+      id: 'sec-ped-final-status',
+      title: 'Situação Final',
+      description: 'Destino e condição do paciente no encerramento do registro',
+      componentId: 'FinalStatusInputs',
+      order: 19,
+      optional: false,
+    },
+    {
+      id: 'sec-ped-additional',
+      title: 'Informações Adicionais',
+      description: 'Observações factuais complementares com privacidade preservada',
+      componentId: 'AdditionalInfoInputs',
+      order: 20,
+      optional: true,
+    },
+  ],
+};
+
+export const TECHNICIAN_NURSING_NOTE_PEDIATRICS_CONTRACT: ClinicalModuleContract<
+  TechnicianPediatricNursingNoteForm,
+  TechnicianPediatricNursingNoteForm,
+  any
+> = {
+  definition: TECHNICIAN_NURSING_NOTE_PEDIATRICS,
+  route: 'pediatric-clinic-evolution',
+  formComponentId: 'TechnicianPediatricFormScreen',
+  createInitialForm: createInitialTechnicianPediatricNursingNoteForm,
+  normalizer: normalizeTechnicianPediatricForm,
+  factsBuilder: buildPediatricAuthorizedFacts,
+  deterministicBuilder: (norm) => {
+    const facts = buildPediatricAuthorizedFacts(norm);
+    return buildTechnicianPediatricNursingNote(facts);
+  },
+  consistencyValidator: validateTechnicianPediatricConsistency,
+  narrativeAuditor: (traces: any[], facts: any) => {
+    return auditPediatricNarrative(traces, facts);
+  },
+  postGenerationVerifier: (rawResponse: any, facts: any, canonical: string) => {
+    const res = verifyPediatricAIRefinedResponse(rawResponse, facts, canonical);
+    return {
+      approved: res.approved,
+      rejectionReasons: res.rejectionReasons,
+    };
+  },
+  aiRefinementPolicy: {
+    common: true,
+    specificRole: 'technician',
+  },
+};

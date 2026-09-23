@@ -1,0 +1,363 @@
+import {
+  ClinicalModuleCapabilities,
+  ClinicalModuleDefinition,
+  ClinicalModuleContract,
+  ClinicalArea,
+} from './types';
+import {
+  NurseICUAdmissionForm,
+  createInitialNurseICUAdmissionForm,
+} from '../../types/nurseICUAdmission';
+import {
+  normalizeNurseICUAdmissionForm,
+  buildAuthorizedNurseICUAdmissionFacts,
+  validateNurseICUAdmissionConsistency,
+  auditNurseICUAdmissionNarrative,
+} from '../nurseICUAdmissionFactBuilder';
+import { buildNurseICUAdmissionNote } from '../nurseICUAdmissionNoteBuilder';
+import { verifyNurseICUAdmissionAIRefinedResponse } from '../nurseICUAdmissionPostGenerationVerifier';
+
+export const NURSE_ADMISSION_ICU_CAPABILITIES: ClinicalModuleCapabilities = {
+  supportsVitalSigns: true,
+  supportsPain: true,
+  supportsNeurologicalAssessment: true,
+  supportsRespiratoryAssessment: true,
+  supportsMechanicalVentilation: true,
+  supportsCardiovascularAssessment: true,
+  supportsNutrition: true,
+  supportsEliminations: true,
+  supportsDevices: true,
+  supportsSkinAssessment: true,
+  supportsInfusions: true,
+  supportsRiskAssessment: true,
+  supportsResponseToCare: true,
+  supportsNurseClinicalSynthesis: true,
+};
+
+export const NURSE_ADMISSION_ICU: ClinicalModuleDefinition = {
+  id: 'NURSE_ADMISSION_ICU',
+  moduleId: 'nurse_admission',
+  professionalRole: 'nurse',
+  documentType: 'NURSE_ADMISSION',
+  clinicalArea: ClinicalArea.ICU,
+  title: 'Admissão de Enfermagem — UTI',
+  capabilities: NURSE_ADMISSION_ICU_CAPABILITIES,
+  status: 'available',
+  sections: [
+    {
+      id: 'sec-adm-icu-context',
+      title: 'Contexto da Admissão',
+      description: 'Momento de admissão e leito designado na UTI',
+      componentId: 'AdmissionContextInputs',
+      order: 1,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-origin',
+      title: 'Origem e Procedência',
+      description: 'Setor de origem e detalhamento do encaminhamento',
+      componentId: 'OriginInputs',
+      order: 2,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-arrival',
+      title: 'Transporte e Chegada',
+      description: 'Meio de transporte e suporte utilizado no trajeto',
+      componentId: 'ArrivalTransportInputs',
+      order: 3,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-safety',
+      title: 'Identificação e Segurança',
+      description: 'Conferência de pulseira e identificação de leito',
+      componentId: 'SafetyIdentificationInputs',
+      order: 4,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-companion',
+      title: 'Acompanhante',
+      description: 'Vínculo do acompanhante na admissão sem identificação nominal',
+      componentId: 'CompanionInputs',
+      order: 5,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-allergies',
+      title: 'Alergias',
+      description: 'Histórico informado de alergias medicamentosas e alimentares',
+      componentId: 'AllergiesInputs',
+      order: 6,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-precautions',
+      title: 'Precauções e Isolamento',
+      description: 'Medidas institucionais de precaução e isolamento',
+      componentId: 'PrecautionsInputs',
+      order: 7,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-reason',
+      title: 'Motivo Informado da Internação',
+      description: 'Causa e justificativa clínica informada para admissão em UTI',
+      componentId: 'AdmissionReasonInputs',
+      order: 8,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-history',
+      title: 'Histórico Informado',
+      description: 'Comorbidades, antecedentes e medicações de uso contínuo referidas',
+      componentId: 'ReportedHistoryInputs',
+      order: 9,
+      optional: true,
+    },
+    {
+      id: 'sec-adm-icu-general',
+      title: 'Avaliação Geral',
+      description: 'Estado geral e queixas referidas na chegada',
+      componentId: 'GeneralAssessmentInputs',
+      order: 10,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-neuro',
+      title: 'Nível de Consciência',
+      description: 'Consciência, vigília e reatividade inicial',
+      componentId: 'NeurologicalStateInputs',
+      order: 11,
+      optional: false,
+      capabilityRequirement: 'supportsNeurologicalAssessment',
+    },
+    {
+      id: 'sec-adm-icu-glasgow',
+      title: 'Escala de Glasgow',
+      description: 'Escore de Glasgow informado pelo profissional (sem cálculo automático)',
+      componentId: 'GlasgowInputs',
+      order: 12,
+      optional: true,
+    },
+    {
+      id: 'sec-adm-icu-rass',
+      title: 'Escala RASS',
+      description: 'Escore de sedação e agitação de Richmond (RASS)',
+      componentId: 'RASSInputs',
+      order: 13,
+      optional: true,
+    },
+    {
+      id: 'sec-adm-icu-pupils',
+      title: 'Avaliação Pupilar',
+      description: 'Simetria e fotorreatividade pupilar na admissão',
+      componentId: 'PupilsInputs',
+      order: 14,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-pain',
+      title: 'Avaliação de Dor',
+      description: 'Escalas álgicas apropriadas (numérica, BPS, CPOT ou não avaliável)',
+      componentId: 'PainAssessmentInputs',
+      order: 15,
+      optional: false,
+      capabilityRequirement: 'supportsPain',
+    },
+    {
+      id: 'sec-adm-icu-vitals',
+      title: 'Sinais Vitais',
+      description: 'PA, PAM manual, FC, FR, SpO2, Temperatura e Glicemia capilar',
+      componentId: 'VitalSignsInputs',
+      order: 16,
+      optional: false,
+      capabilityRequirement: 'supportsVitalSigns',
+    },
+    {
+      id: 'sec-adm-icu-resp-support',
+      title: 'Suporte Respiratório',
+      description: 'Modalidade de suporte de oxigênio na admissão',
+      componentId: 'RespiratorySupportInputs',
+      order: 17,
+      optional: false,
+      capabilityRequirement: 'supportsRespiratoryAssessment',
+    },
+    {
+      id: 'sec-adm-icu-mv',
+      title: 'Ventilação Mecânica Invasiva',
+      description: 'Parâmetros e via aérea artificial se sob VMI',
+      componentId: 'MechanicalVentilationInputs',
+      order: 18,
+      optional: true,
+      capabilityRequirement: 'supportsMechanicalVentilation',
+    },
+    {
+      id: 'sec-adm-icu-cardio',
+      title: 'Avaliação Cardiovascular',
+      description: 'Perfusão periférica, extremidades, TEC e edema',
+      componentId: 'CardiovascularAssessmentInputs',
+      order: 19,
+      optional: false,
+      capabilityRequirement: 'supportsCardiovascularAssessment',
+    },
+    {
+      id: 'sec-adm-icu-dva',
+      title: 'Drogas Vasoativas',
+      description: 'Infusões contínuas de drogas vasoativas instaladas',
+      componentId: 'VasoactiveDrugsInputs',
+      order: 20,
+      optional: true,
+      capabilityRequirement: 'supportsInfusions',
+    },
+    {
+      id: 'sec-adm-icu-sedation',
+      title: 'Sedação e Analgesia Contínua',
+      description: 'Infusões contínuas de sedativos e analgésicos',
+      componentId: 'SedationAnalgesiaInputs',
+      order: 21,
+      optional: true,
+      capabilityRequirement: 'supportsInfusions',
+    },
+    {
+      id: 'sec-adm-icu-gi',
+      title: 'Avaliação Gastrointestinal',
+      description: 'Aspecto abdominal, ruídos hidroaéreos e tolerância digestiva',
+      componentId: 'GastrointestinalInputs',
+      order: 22,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-nutrition',
+      title: 'Nutrição',
+      description: 'Via nutricional, dispositivos enterais e vazão',
+      componentId: 'NutritionInputs',
+      order: 23,
+      optional: false,
+      capabilityRequirement: 'supportsNutrition',
+    },
+    {
+      id: 'sec-adm-icu-eliminations',
+      title: 'Eliminações',
+      description: 'Padrão e características de diurese e evacuação',
+      componentId: 'EliminationsInputs',
+      order: 24,
+      optional: false,
+      capabilityRequirement: 'supportsEliminations',
+    },
+    {
+      id: 'sec-adm-icu-water-balance',
+      title: 'Balanço Hídrico Inicial',
+      description: 'Condição inicial de balanço hídrico na UTI',
+      componentId: 'WaterBalanceInputs',
+      order: 25,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-devices',
+      title: 'Dispositivos Invasivos',
+      description: 'Cateteres, sondas, vias e fixações presentes na chegada',
+      componentId: 'InvasiveDevicesInputs',
+      order: 26,
+      optional: false,
+      capabilityRequirement: 'supportsDevices',
+    },
+    {
+      id: 'sec-adm-icu-skin',
+      title: 'Pele e Integridade Cutânea',
+      description: 'Inspeção admissional da pele, lesões e coberturas aplicadas',
+      componentId: 'SkinIntegrityInputs',
+      order: 27,
+      optional: false,
+      capabilityRequirement: 'supportsSkinAssessment',
+    },
+    {
+      id: 'sec-adm-icu-risks',
+      title: 'Riscos Assistenciais',
+      description: 'Identificação de riscos e medidas preventivas instituídas',
+      componentId: 'CareRisksInputs',
+      order: 28,
+      optional: false,
+      capabilityRequirement: 'supportsRiskAssessment',
+    },
+    {
+      id: 'sec-adm-icu-care',
+      title: 'Cuidados Realizados na Admissão',
+      description: 'Ações e intervenções de enfermagem prestadas no acolhimento intensivo',
+      componentId: 'AdmissionCareInputs',
+      order: 29,
+      optional: false,
+    },
+    {
+      id: 'sec-adm-icu-complications',
+      title: 'Intercorrências na Admissão',
+      description: 'Eventos agudos e condutas imediatas adotadas pela equipe',
+      componentId: 'ComplicationsInputs',
+      order: 30,
+      optional: true,
+    },
+    {
+      id: 'sec-adm-icu-communication',
+      title: 'Comunicação Multiprofissional',
+      description: 'Passagem de caso e alinhamentos com equipe médica e multiprofissional',
+      componentId: 'MultiprofessionalCommunicationInputs',
+      order: 31,
+      optional: true,
+    },
+    {
+      id: 'sec-adm-icu-status',
+      title: 'Situação Após Admissão',
+      description: 'Condição do paciente ao término da admissão e pendências assistenciais',
+      componentId: 'PostAdmissionStatusInputs',
+      order: 32,
+      optional: false,
+      capabilityRequirement: 'supportsNurseClinicalSynthesis',
+    },
+  ],
+};
+
+export const NURSE_ADMISSION_ICU_CONTRACT: ClinicalModuleContract<
+  NurseICUAdmissionForm,
+  NurseICUAdmissionForm,
+  any
+> = {
+  definition: NURSE_ADMISSION_ICU,
+  route: 'nurse-admission-icu',
+  formComponentId: 'NurseICUAdmissionFormScreen',
+  createInitialForm: createInitialNurseICUAdmissionForm,
+  normalizer: normalizeNurseICUAdmissionForm,
+  factsBuilder: buildAuthorizedNurseICUAdmissionFacts,
+  deterministicBuilder: (norm: NurseICUAdmissionForm) => {
+    const facts = buildAuthorizedNurseICUAdmissionFacts(norm);
+    return buildNurseICUAdmissionNote(facts);
+  },
+  consistencyValidator: (form: NurseICUAdmissionForm) => {
+    const result = validateNurseICUAdmissionConsistency(form);
+    return [
+      ...result.errors.map((msg) => ({ severity: 'error', message: msg })),
+      ...result.warnings.map((msg) => ({ severity: 'warning', message: msg })),
+    ];
+  },
+  narrativeAuditor: (traces: any, facts: any) => {
+    const narrative = Array.isArray(traces)
+      ? traces.map((t: any) => t.text || '').join(' ')
+      : String(traces);
+    const auditRes = auditNurseICUAdmissionNarrative(narrative, facts);
+    return {
+      passed: auditRes.passed,
+      unauthorizedSegments: auditRes.untraceableSegments,
+    };
+  },
+  postGenerationVerifier: (rawResponse, facts, canonical) => {
+    const vResult = verifyNurseICUAdmissionAIRefinedResponse(rawResponse, facts, canonical);
+    return {
+      approved: vResult.approved,
+      rejectionReasons: vResult.reasons,
+    };
+  },
+  aiRefinementPolicy: {
+    common: true,
+    specificRole: 'nurse',
+  },
+};

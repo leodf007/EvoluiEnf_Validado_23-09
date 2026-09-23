@@ -1,0 +1,156 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Funções auxiliares de autorização estrita
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isResourceOwner() {
+      return isAuthenticated() && (
+        resource.data.usuarioId == request.auth.uid ||
+        resource.data.userId == request.auth.uid
+      );
+    }
+    
+    function isWriteOwner() {
+      return isAuthenticated() && (
+        request.resource.data.usuarioId == request.auth.uid ||
+        request.resource.data.userId == request.auth.uid
+      );
+    }
+
+
+    function hasValidDocumentQuotaPermit(userId, atendimentoId) {
+      return isAuthenticated()
+        && ('quotaPermitId' in request.resource.data)
+        && request.resource.data.quotaPermitId is string
+        && exists(/databases/$(database)/documents/quotaPermits/$(request.resource.data.quotaPermitId))
+        && get(/databases/$(database)/documents/quotaPermits/$(request.resource.data.quotaPermitId)).data.userId == userId
+        && get(/databases/$(database)/documents/quotaPermits/$(request.resource.data.quotaPermitId)).data.kind == 'document'
+        && get(/databases/$(database)/documents/quotaPermits/$(request.resource.data.quotaPermitId)).data.status == 'reserved'
+        && get(/databases/$(database)/documents/quotaPermits/$(request.resource.data.quotaPermitId)).data.resourceId == atendimentoId
+        && get(/databases/$(database)/documents/quotaPermits/$(request.resource.data.quotaPermitId)).data.period == request.resource.data.quotaPeriod
+        && get(/databases/$(database)/documents/quotaPermits/$(request.resource.data.quotaPermitId)).data.validUntil > request.time;
+    }
+
+    // 1) Coleção de Usuários (ID = auth.uid)
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+
+      // Subcoleção de atendimentos multiusuário estritamente isolada: users/{uid}/atendimentos/{atendimentoId}
+      match /atendimentos/{atendimentoId} {
+        // Leitura apenas pelo proprietário do UID da rota
+        allow read: if isOwner(userId);
+        
+        // Criação: somente se autenticado, UID confere e o campo usuarioId/userId no payload é estritamente o auth.uid
+        allow create: if isOwner(userId)
+          && (request.resource.data.usuarioId == userId || request.resource.data.userId == userId)
+          && hasValidDocumentQuotaPermit(userId, atendimentoId);
+        
+        // Atualização: somente o proprietário, e NUNCA é permitido alterar o usuarioId/userId para assumir dados de terceiro
+        allow update: if isOwner(userId)
+          && (request.resource.data.usuarioId == userId || request.resource.data.userId == userId)
+          && (!('usuarioId' in resource.data) || resource.data.usuarioId == userId)
+          && (!('userId' in resource.data) || resource.data.userId == userId)
+          && (!('quotaPermitId' in resource.data) || request.resource.data.quotaPermitId == resource.data.quotaPermitId);
+          
+        // Exclusão: somente pelo proprietário
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // 2) Coleção legada de Atendimentos (anônimos, por profissional com proteção de imutabilidade de usuarioId)
+    match /atendimentos/{atendimentoId} {
+      allow read: if isResourceOwner();
+      allow create: if isWriteOwner() && hasValidDocumentQuotaPermit(request.auth.uid, atendimentoId);
+      allow update: if isResourceOwner()
+        && isWriteOwner()
+        && (!('usuarioId' in request.resource.data) || request.resource.data.usuarioId == resource.data.usuarioId)
+        && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
+        && (!('quotaPermitId' in resource.data) || request.resource.data.quotaPermitId == resource.data.quotaPermitId);
+      allow delete: if isResourceOwner();
+    }
+
+    // 3) Evoluções clínicas geradas
+    match /evolucoes/{evolucaoId} {
+      allow read: if isResourceOwner();
+      allow create: if isWriteOwner();
+      allow update: if isResourceOwner() 
+        && isWriteOwner() 
+        && (
+          (!('usuarioId' in request.resource.data) || request.resource.data.usuarioId == resource.data.usuarioId) &&
+          (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
+        );
+      allow delete: if isResourceOwner();
+    }
+
+    // 4) Subscriptions (Assinaturas SaaS)
+    match /subscriptions/{subscriptionId} {
+      allow read: if isAuthenticated() && (
+        subscriptionId == request.auth.uid ||
+        resource.data.usuarioId == request.auth.uid ||
+        resource.data.userId == request.auth.uid
+      );
+      // Fonte comercial autoritativa: somente backend/webhook (Admin SDK) pode alterar.
+      allow create, update, delete: if false;
+    }
+
+    // 4b) User Subscriptions (alias consistente para assinatura SaaS)
+    match /user_subscriptions/{subscriptionId} {
+      allow read: if isAuthenticated() && (
+        subscriptionId == request.auth.uid ||
+        resource.data.usuarioId == request.auth.uid ||
+        resource.data.userId == request.auth.uid
+      );
+      // Legado somente leitura para migração controlada pelo backend.
+      allow create, update, delete: if false;
+    }
+
+    // 5) Usage metrics (Métricas de consumo do profissional)
+    match /usage/{usageId} {
+      allow read: if isResourceOwner();
+      // Contadores são mantidos exclusivamente pelo backend em transações atômicas.
+      allow create, update, delete: if false;
+    }
+
+
+    // 5b) Permissões de cota emitidas pelo backend; não contêm dados clínicos.
+    match /quotaPermits/{permitId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || resource.data.usuarioId == request.auth.uid
+      );
+      allow create, update, delete: if false;
+    }
+
+    // 6) Modelos de Enfermagem (Catálogo de templates estruturados)
+    match /modelos/{modeloId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Atualizados apenas administrativamente
+    }
+
+    // 7) Modelos Favoritos (Associação pessoal por profissional)
+    match /favoriteModels/{favoriteId} {
+      allow read: if isResourceOwner();
+      allow create: if isWriteOwner();
+      allow update: if isResourceOwner() 
+        && isWriteOwner() 
+        && request.resource.data.usuarioId == resource.data.usuarioId;
+      allow delete: if isResourceOwner();
+    }
+
+    // Bloqueia qualquer outro documento não previsto
+    match /{document=**} {
+      allow read, write: false;
+    }
+  }
+}

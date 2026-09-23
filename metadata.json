@@ -1,0 +1,6 @@
+{
+  "name": "EvoluiEnf",
+  "description": "Apoio inteligente à documentação de enfermagem",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

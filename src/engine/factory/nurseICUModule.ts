@@ -1,0 +1,288 @@
+import {
+  ClinicalModuleCapabilities,
+  ClinicalModuleDefinition,
+  ClinicalModuleContract,
+  ClinicalArea,
+} from './types';
+import {
+  NurseICUEvolutionForm,
+  createInitialNurseICUEvolutionForm,
+} from '../../types/nurseICUEvolution';
+import {
+  normalizeNurseICUEvolutionForm,
+  buildAuthorizedNurseICUFacts,
+  buildNurseICUEvolutionNote,
+  validateNurseICUConsistency,
+  auditNurseICUNarrative,
+} from '../nurseICUClinicalFactBuilder';
+import { verifyNurseICUAIRefinedResponse } from '../nurseICUPostGenerationVerifier';
+
+export const NURSE_ICU_CAPABILITIES: ClinicalModuleCapabilities = {
+  supportsVitalSigns: true,
+  supportsPain: true,
+  supportsNeurologicalAssessment: true,
+  supportsRespiratoryAssessment: true,
+  supportsMechanicalVentilation: true,
+  supportsCardiovascularAssessment: true,
+  supportsNutrition: true,
+  supportsEliminations: true,
+  supportsDevices: true,
+  supportsSkinAssessment: true,
+  supportsInfusions: true,
+  supportsRiskAssessment: true,
+  supportsResponseToCare: true,
+  supportsNurseClinicalSynthesis: true, // Privativo do Enfermeiro
+};
+
+export const NURSE_EVOLUTION_ICU: ClinicalModuleDefinition = {
+  id: 'NURSE_EVOLUTION_ICU',
+  moduleId: 'nurse_evolution',
+  professionalRole: 'nurse',
+  documentType: 'NURSE_EVOLUTION',
+  clinicalArea: ClinicalArea.ICU,
+  title: 'Evolução de Enfermagem — UTI',
+  capabilities: NURSE_ICU_CAPABILITIES,
+  status: 'available',
+  sections: [
+    {
+      id: 'sec-nurse-icu-context',
+      title: 'Contexto do Registro',
+      description: 'Momento, localização e checagem de identificação/precaução',
+      componentId: 'ContextInputs',
+      order: 1,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-general',
+      title: 'Avaliação Geral',
+      description: 'Comportamento, queixas referidas e fonte da informação',
+      componentId: 'GeneralAssessmentInputs',
+      order: 2,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-vitals',
+      title: 'Sinais Vitais',
+      description: 'PA, PAM manual aferida, FC, FR, SpO2, Temperatura, Glicemia capilar',
+      componentId: 'VitalSignsInputs',
+      order: 3,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-pain',
+      title: 'Avaliação de Dor',
+      description: 'Escala numérica, BPS, CPOT ou dor não avaliável',
+      componentId: 'PainAssessmentInputs',
+      order: 4,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-neurological',
+      title: 'Avaliação Neurológica',
+      description: 'Consciência, orientação, Glasgow, RASS, pupilas e déficit motor',
+      componentId: 'NeurologicalInputs',
+      order: 5,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-sedation-assessment',
+      title: 'Sedação Avaliada',
+      description: 'Status de sedação registrado e observações clínicas',
+      componentId: 'SedationAssessmentInputs',
+      order: 6,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-respiratory',
+      title: 'Suporte Respiratório e Ausculta Pulmonar',
+      description: 'Suporte respiratório, padrão ventilatório e ausculta pulmonar',
+      componentId: 'RespiratorySupportInputs',
+      order: 7,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-mechanical-ventilation',
+      title: 'Ventilação Mecânica Invasiva (VMI)',
+      description: 'Via aérea (TOT/TQT), modo e parâmetros do ventilador',
+      componentId: 'MechanicalVentilationInputs',
+      order: 8,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-cardiovascular',
+      title: 'Cardiovascular, Perfusão e Ausculta Cardíaca',
+      description: 'Perfusão, TEC, extremidades, edema e ausculta cardíaca',
+      componentId: 'CardiovascularPerfusionInputs',
+      order: 9,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-vasoactive-drugs',
+      title: 'Drogas Vasoativas',
+      description: 'Infusões contínuas de drogas vasoativas em bomba de infusão',
+      componentId: 'VasoactiveDrugsInputs',
+      order: 10,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-sedation-analgesia',
+      title: 'Sedação e Analgesia em Infusão',
+      description: 'Infusões contínuas de sedativos e analgésicos',
+      componentId: 'SedationInfusionInputs',
+      order: 11,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-other-infusions',
+      title: 'Outras Infusões Contínuas',
+      description: 'Eletrólitos, reposições e hidratações contínuas',
+      componentId: 'SedationInfusionInputs',
+      order: 12,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-gastrointestinal',
+      title: 'Gastrointestinal, Nutrição e Abdome',
+      description: 'Via nutricional, dieta enteral, palpação e RHA',
+      componentId: 'NutritionInputs',
+      order: 13,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-eliminations',
+      title: 'Eliminações Vesicais e Intestinais',
+      description: 'Diurese, aspecto da urina, via de eliminação e evacuações',
+      componentId: 'EliminationInputs',
+      order: 14,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-water-balance',
+      title: 'Balanço Hídrico',
+      description: 'Controle hídrico, entradas, saídas e balanço acumulado informado',
+      componentId: 'WaterBalanceInputs',
+      order: 15,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-devices',
+      title: 'Dispositivos Invasivos',
+      description: 'Acessos vasculares (AVP, CVC, PICC, PAI), drenos e sondas',
+      componentId: 'DeviceFormCard',
+      order: 16,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-skin',
+      title: 'Pele e Integridade Cutânea',
+      description: 'Integridade, turgor, hidratação, lesões e curativos',
+      componentId: 'SkinAssessmentInputs',
+      order: 17,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-mobility',
+      title: 'Mobilidade e Posicionamento no Leito',
+      description: 'Nível de mobilidade, mudança de decúbito e grades',
+      componentId: 'MobilityInputs',
+      order: 18,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-risk-assessment',
+      title: 'Riscos Assistenciais Avaliados',
+      description: 'Escalas de risco de queda, lesão por pressão e broncoaspiração',
+      componentId: 'RiskAssessmentInputs',
+      order: 19,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-care',
+      title: 'Cuidados Realizados e Banho',
+      description: 'Checklist de intervenções de enfermagem e tolerância ao banho',
+      componentId: 'NursingCareInputs',
+      order: 20,
+      optional: false,
+    },
+    {
+      id: 'sec-nurse-icu-response-to-care',
+      title: 'Resposta aos Cuidados',
+      description: 'Resposta clínica factual observada após intervenções',
+      componentId: 'ResponseToCareInputs',
+      order: 21,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-complications',
+      title: 'Intercorrências no Período',
+      description: 'Registro de intercorrências, horário, condutas e resposta',
+      componentId: 'ComplicationInputs',
+      order: 22,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-communication',
+      title: 'Comunicação Assistencial',
+      description: 'Comunicação realizada à equipe médica ou multiprofissional',
+      componentId: 'CommunicationInputs',
+      order: 23,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-comparison',
+      title: 'Alterações em Relação à Avaliação Anterior',
+      description: 'Evolução clínica em relação ao período ou plantão prévio',
+      componentId: 'EvolutionStatusInputs',
+      order: 24,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-synthesis',
+      title: 'Síntese de Enfermagem',
+      description: 'Síntese do julgamento clínico e avaliação privativa do Enfermeiro',
+      componentId: 'NurseSynthesisInputs',
+      order: 25,
+      optional: true,
+    },
+    {
+      id: 'sec-nurse-icu-status',
+      title: 'Situação Atual e Informações Adicionais',
+      description: 'Destino, continuidade da assistência e notas adicionais',
+      componentId: 'EvolutionStatusInputs',
+      order: 26,
+      optional: false,
+    },
+  ],
+};
+
+export const NURSE_EVOLUTION_ICU_CONTRACT: ClinicalModuleContract<
+  NurseICUEvolutionForm,
+  NurseICUEvolutionForm,
+  any
+> = {
+  definition: NURSE_EVOLUTION_ICU,
+  route: 'nurse-evolution-icu',
+  formComponentId: 'NurseICUEvolutionFormScreen',
+  createInitialForm: createInitialNurseICUEvolutionForm,
+  normalizer: normalizeNurseICUEvolutionForm,
+  factsBuilder: buildAuthorizedNurseICUFacts,
+  deterministicBuilder: (norm) => {
+    const facts = buildAuthorizedNurseICUFacts(norm);
+    return buildNurseICUEvolutionNote(facts);
+  },
+  consistencyValidator: validateNurseICUConsistency,
+  narrativeAuditor: (traces: any[], facts: any) => {
+    return auditNurseICUNarrative(traces, facts);
+  },
+  postGenerationVerifier: (rawResponse: any, facts: any, canonical: string) => {
+    const res = verifyNurseICUAIRefinedResponse(rawResponse, facts, canonical);
+    return {
+      approved: res.approved,
+      rejectionReasons: res.reasons,
+    };
+  },
+  aiRefinementPolicy: {
+    common: true,
+    specificRole: 'nurse',
+  },
+};

@@ -1,0 +1,131 @@
+{
+  "entities": {
+    "users": {
+      "title": "Perfil Profissional",
+      "description": "Dados cadastrais e profissionais do usuário (enfermeiro ou técnico)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nome": { "type": "string" },
+        "email": { "type": "string" },
+        "profissao": { "type": "string" },
+        "registroProfissional": { "type": "string" },
+        "coren": { "type": "string" },
+        "categoriaProfissional": { "type": "string" },
+        "estado": { "type": "string" },
+        "plano": { "type": "string" },
+        "dataCadastro": { "type": "string" }
+      },
+      "required": ["id", "nome", "email", "profissao", "plano"]
+    },
+    "atendimentos": {
+      "title": "Atendimentos Anônimos",
+      "description": "Registros de atendimentos sem dados pessoais identificáveis (apenas iniciais ou código interno)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "usuarioId": { "type": "string" },
+        "identificacao": { "type": "string" },
+        "idade": { "type": "string" },
+        "sexo": { "type": "string" },
+        "setor": { "type": "string" },
+        "leito": { "type": "string" },
+        "tipoRegistro": { "type": "string" },
+        "status": { "type": "string" },
+        "resumoRegistro": { "type": "string" },
+        "narrativaFinal": { "type": "string" },
+        "dataCriacao": { "type": "string" }
+      },
+      "required": ["id", "usuarioId", "identificacao", "setor", "tipoRegistro", "dataCriacao"]
+    },
+    "evolucoes": {
+      "title": "Evoluções de Enfermagem",
+      "description": "Documentação e relatórios clínicos estruturados gerados pelo motor clínico",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "usuarioId": { "type": "string" },
+        "atendimentoId": { "type": "string" },
+        "identificacao": { "type": "string" },
+        "setor": { "type": "string" },
+        "tipoRegistro": { "type": "string" },
+        "moduloId": { "type": "string" },
+        "narrativa": { "type": "string" },
+        "dataCriacao": { "type": "string" }
+      },
+      "required": ["id", "usuarioId", "tipoRegistro", "narrativa", "dataCriacao"]
+    },
+    "subscriptions": {
+      "title": "Assinatura do Profissional",
+      "description": "Status e plano SaaS do profissional",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "usuarioId": { "type": "string" },
+        "plano": { "type": "string" },
+        "status": { "type": "string" },
+        "dataInicio": { "type": "string" },
+        "dataRenovacao": { "type": "string" }
+      },
+      "required": ["id", "usuarioId", "plano", "status"]
+    },
+    "usage": {
+      "title": "Métricas de Uso",
+      "description": "Volume de documentações mensais geradas para controle de limites do plano",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "usuarioId": { "type": "string" },
+        "mesAno": { "type": "string" },
+        "totalAtendimentos": { "type": "number" },
+        "totalEvolucoes": { "type": "number" },
+        "totalRefinamentosIA": { "type": "number" },
+        "ultimoUso": { "type": "string" }
+      },
+      "required": ["id", "usuarioId", "mesAno", "totalAtendimentos", "totalEvolucoes"]
+    },
+    "modelos": {
+      "title": "Modelos de Enfermagem",
+      "description": "Biblioteca inteligente de roteiros estruturados de documentação de enfermagem",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "categoria": { "type": "string", "enum": ["UTI", "Clínica Médica", "Feridas", "Cirúrgico", "Pediatria"] },
+        "titulo": { "type": "string" },
+        "descricao": { "type": "string" },
+        "tipoRegistro": { "type": "string" },
+        "camposNecessarios": { "type": "array" },
+        "nivelAcesso": { "type": "string", "enum": ["gratuito", "premium"] },
+        "ativo": { "type": "boolean" },
+        "versaoModelo": { "type": "string" },
+        "criadoPor": { "type": "string" },
+        "dataCriacao": { "type": "string" },
+        "dataAtualizacao": { "type": "string" }
+      },
+      "required": ["id", "categoria", "titulo", "descricao", "tipoRegistro", "nivelAcesso", "ativo", "versaoModelo", "criadoPor", "dataCriacao", "dataAtualizacao"]
+    },
+    "favoriteModels": {
+      "title": "Modelos Favoritos do Usuário",
+      "description": "Associação de modelos favoritados por profissionais com suporte a apelidos customizados",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "usuarioId": { "type": "string" },
+        "modeloId": { "type": "string" },
+        "nomePersonalizado": { "type": "string" },
+        "dataCriacao": { "type": "string" }
+      },
+      "required": ["id", "usuarioId", "modeloId", "dataCriacao"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "Perfil profissional do usuário SaaS autenticado"
+    },
+    "/users/{userId}/atendimentos/{atendimentoId}": {
+      "schema": "atendimentos",
+      "description": "Subcoleção multiusuário isolada com dados clínicos, documentos, auditoria e versões"
+    }
+  }
+}
